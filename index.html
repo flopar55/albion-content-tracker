@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Albion Radar | Real-Time Taktik Ekranı</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { background-color: #0f172a; color: #cbd5e1; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid #334155; }
+    </style>
+</head>
+<body class="p-4 md:p-8 font-sans">
+
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-8 text-center">
+            <h1 class="text-3xl font-bold text-amber-500 mb-2">⚔️ Albion Radar</h1>
+            <p class="text-sm text-slate-400">Canlı Objektif ve Geri Sayım Sistemi</p>
+        </header>
+
+        <div class="glass-panel p-6 rounded-xl mb-8 shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-white">Yeni Objektif Ekle</h2>
+            <form id="add-form" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-xs mb-1 text-slate-400">Objektif Türü</label>
+                    <input type="text" id="isim" placeholder="Örn: Altın Sandık" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:border-amber-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs mb-1 text-slate-400">Harita Konumu</label>
+                    <input type="text" id="harita" placeholder="Örn: Black Zone T8" required class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:border-amber-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-xs mb-1 text-slate-400">Kalan Süre (Dakika)</label>
+                    <input type="number" id="dakika" placeholder="Örn: 45" required min="1" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:border-amber-500 outline-none">
+                </div>
+                <div class="flex items-end">
+                    <button type="submit" class="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2 px-4 rounded transition-colors">
+                        Sisteme İşle
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="glass-panel p-6 rounded-xl shadow-lg">
+            <h2 class="text-xl font-semibold mb-4 text-white flex justify-between items-center">
+                <span>Aktif Taktiksel Hedefler</span>
+                <span id="status" class="text-xs px-2 py-1 bg-green-900/50 text-green-400 rounded-full border border-green-800">Canlı Bağlantı Aktif</span>
+            </h2>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-slate-700 text-slate-400 text-sm">
+                            <th class="p-3">Tür</th>
+                            <th class="p-3">Harita</th>
+                            <th class="p-3">Kalan Zaman</th>
+                            <th class="p-3">İşlem</th>
+                        </tr>
+                    </thead>
+                    <tbody id="targets-body">
+                        <tr><td colspan="4" class="text-center p-4 text-slate-500">Yükleniyor veya aktif hedef yok...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // MİMARIN KODLADIĞI ÇEKİRDEK (Senin API Bilgilerinle)
+        const SUPABASE_URL = 'https://wbrpssjxzfxiyhwibked.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndicnBzc2p4emZ4aXlod2lia2VkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzOTA1NTAsImV4cCI6MjA5MDk2NjU1MH0.-ZOimu7lyVwG5OLyJvooCiZqvuqz523QkWHZyGV8ztA';
+        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let targets = [];
+
+        // Verileri Veritabanından Çek
+        async function fetchTargets() {
+            const { data, error } = await supabase.from('hedefler').select('*').order('bitis_zamani', { ascending: true });
+            if (error) { console.error('Hata:', error); return; }
+            targets = data;
+            renderTargets();
+        }
+
+        // Yeni Veri Ekleme İşlemi
+        document.getElementById('add-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const isim = document.getElementById('isim').value;
+            const harita = document.getElementById('harita').value;
+            const dakika = parseInt(document.getElementById('dakika').value);
+
+            // Bitiş zamanını hesapla (Şu anki UTC zamanı + girilen dakika)
+            const bitisZamani = new Date(Date.now() + dakika * 60000).toISOString();
+
+            const { error } = await supabase.from('hedefler').insert([{ isim: isim, harita: harita, bitis_zamani: bitisZamani }]);
+            
+            if (!error) {
+                document.getElementById('add-form').reset();
+                fetchTargets(); // Listeyi güncelle
+            } else {
+                alert("Veri eklenirken hata oluştu! Tablo adını ('hedefler') ve kolonları doğru açtığından emin ol.");
+            }
+        });
+
+        // Veri Silme İşlemi
+        async function deleteTarget(id) {
+            await supabase.from('hedefler').delete().eq('id', id);
+            fetchTargets();
+        }
+
+        // Geri Sayım Hesaplayıcı (Zaman Mimarisi)
+        function formatTimeLeft(endTimeStr) {
+            const end = new Date(endTimeStr).getTime();
+            const now = new Date().getTime();
+            const distance = end - now;
+
+            if (distance < 0) return "<span class='text-red-500 font-bold'>SÜRE BİTTİ!</span>";
+
+            const hours = Math.floor((distance % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+
+            let result = "";
+            if(hours > 0) result += `${hours}s `;
+            result += `${minutes}d ${seconds}sn`;
+            return `<span class='text-amber-400 font-mono font-bold'>${result}</span>`;
+        }
+
+        // Ekrana Çizdirme Mantığı (UI Rendering)
+        function renderTargets() {
+            const tbody = document.getElementById('targets-body');
+            tbody.innerHTML = '';
+
+            if (targets.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-slate-500">Şu an takip edilen bir objektif yok.</td></tr>';
+                return;
+            }
+
+            targets.forEach(target => {
+                const tr = document.createElement('tr');
+                tr.className = 'border-b border-slate-700/50 hover:bg-slate-800/50 transition-colors';
+                tr.innerHTML = `
+                    <td class="p-3 font-semibold text-white">${target.isim}</td>
+                    <td class="p-3 text-slate-300">${target.harita}</td>
+                    <td class="p-3" id="timer-${target.id}">${formatTimeLeft(target.bitis_zamani)}</td>
+                    <td class="p-3">
+                        <button onclick="deleteTarget(${target.id})" class="text-xs bg-red-900/50 text-red-400 hover:bg-red-600 hover:text-white px-2 py-1 rounded transition-colors">Temizle</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Her saniye geri sayımları güncelle
+        setInterval(() => {
+            targets.forEach(target => {
+                const timerEl = document.getElementById(`timer-${target.id}`);
+                if (timerEl) timerEl.innerHTML = formatTimeLeft(target.bitis_zamani);
+            });
+        }, 1000);
+
+        // Canlı Güncelleme (Real-time WebSockets) - Biri eklerse herkes görsün!
+        supabase.channel('custom-all-channel')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'hedefler' }, (payload) => {
+                fetchTargets(); // Değişiklik olunca verileri yeniden çek
+            }).subscribe();
+
+        // Sistemi Başlat
+        fetchTargets();
+    </script>
+</body>
+</html>
