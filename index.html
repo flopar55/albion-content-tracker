@@ -76,7 +76,7 @@
 
         // Verileri Veritabanından Çek
         async function fetchTargets() {
-            const { data, error } = await supabase.from('hedefler').select('*').order('bitis_zamani', { ascending: true });
+            const { data, error } = await supabase.from('albion_content_tracker').select('*').order('bitis_zamani', { ascending: true });
             if (error) { console.error('Hata:', error); return; }
             targets = data;
             renderTargets();
@@ -92,19 +92,19 @@
             // Bitiş zamanını hesapla (Şu anki UTC zamanı + girilen dakika)
             const bitisZamani = new Date(Date.now() + dakika * 60000).toISOString();
 
-            const { error } = await supabase.from('hedefler').insert([{ isim: isim, harita: harita, bitis_zamani: bitisZamani }]);
+            const { error } = await supabase.from('albion_content_tracker').insert([{ isim: isim, harita: harita, bitis_zamani: bitisZamani }]);
             
             if (!error) {
                 document.getElementById('add-form').reset();
                 fetchTargets(); // Listeyi güncelle
             } else {
-                alert("Veri eklenirken hata oluştu! Tablo adını ('hedefler') ve kolonları doğru açtığından emin ol.");
+                alert("Veri eklenirken hata oluştu! Tablo adını ('albion_content_tracker') ve kolonları doğru açtığından emin ol.");
             }
         });
 
         // Veri Silme İşlemi
         async function deleteTarget(id) {
-            await supabase.from('hedefler').delete().eq('id', id);
+            await supabase.from('albion_content_tracker').delete().eq('id', id);
             fetchTargets();
         }
 
@@ -161,7 +161,7 @@
 
         // Canlı Güncelleme (Real-time WebSockets) - Biri eklerse herkes görsün!
         supabase.channel('custom-all-channel')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'hedefler' }, (payload) => {
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'albion_content_tracker' }, (payload) => {
                 fetchTargets(); // Değişiklik olunca verileri yeniden çek
             }).subscribe();
 
