@@ -9,7 +9,6 @@
     <style>
         body { background-color: #0f172a; color: #cbd5e1; }
         .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid #334155; }
-        /* Dosya yükleme butonu stili */
         input[type="file"]::file-selector-button {
             background-color: #334155; color: white; border: none; padding: 0.5rem 1rem;
             border-radius: 0.25rem; cursor: pointer; margin-right: 1rem; transition: background-color 0.2s;
@@ -18,6 +17,8 @@
     </style>
 </head>
 <body class="p-4 md:p-8 font-sans">
+
+    <input type="file" id="hidden-image-input" accept="image/*" class="hidden" onchange="handleImageUpdate(event)">
 
     <div class="max-w-5xl mx-auto">
         <header class="mb-8 text-center">
@@ -110,10 +111,7 @@
                         </tr>
                     </thead>
                     <tbody id="targets-body">
-                        <tr><td colspan="5" class="text-center p-4 text-slate-500">
-                            <div>Yükleniyor veya aktif hedef yok...</div>
-                            <div class="text-xs mt-1">Loading or no active objectives...</div>
-                        </td></tr>
+                        <tr><td colspan="5" class="text-center p-4 text-slate-500">Yükleniyor...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -121,7 +119,6 @@
     </div>
 
     <script>
-        // SİSTEM MİMARİSİ ÇEKİRDEK YAPISI
         const SUPABASE_URL = 'https://wbrpssjxzfxiyhwibked.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndicnBzc2p4emZ4aXlod2lia2VkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzOTA1NTAsImV4cCI6MjA5MDk2NjU1MH0.-ZOimu7lyVwG5OLyJvooCiZqvuqz523QkWHZyGV8ztA';
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -130,8 +127,8 @@
         const BUCKET_ADI = 'hedef-resimleri';
 
         let targets = [];
+        let currentUpdateId = null; // Hangi satıra resim eklediğimizi tutan hafıza
 
-        // Verileri Veritabanından Çek
         async function fetchTargets() {
             const { data, error } = await supabaseClient.from(TABLO_ADI).select('*').order('bitis_zamani', { ascending: true });
             if (error) { console.error('Hata:', error); return; }
@@ -139,21 +136,17 @@
             renderTargets();
         }
 
-        // Yeni Veri ve Resim Ekleme İşlemi
+        // Yeni Veri Ekleme
         document.getElementById('add-form').addEventListener('submit', async (e) => {
             e.preventDefault();
-            
             const btn = document.getElementById('submit-btn');
-            const originalHtml = btn.innerHTML;
-            btn.innerHTML = '<span class="leading-none">Yükleniyor...</span><span class="text-[10px] font-normal opacity-80 mt-1 leading-none">Loading...</span>';
+            btn.innerHTML = '<span class="leading-none">Yükleniyor...</span><span class="text-[10px] mt-1 leading-none">Loading...</span>';
             btn.disabled = true;
 
             const isim = document.getElementById('isim').value;
             const harita = document.getElementById('harita').value;
             const dakika = parseInt(document.getElementById('dakika').value);
             const resimDosyasi = document.getElementById('resim').files[0];
-
-            // Bitiş zamanını hesapla
             const bitisZamani = new Date(Date.now() + dakika * 60000).toISOString();
             let resimUrl = null;
 
@@ -161,50 +154,79 @@
                 if (resimDosyasi) {
                     const dosyaUzantisi = resimDosyasi.name.split('.').pop();
                     const benzersizIsim = `${Date.now()}-${Math.random().toString(36).substring(2)}.${dosyaUzantisi}`;
-
-                    const { data: uploadData, error: uploadError } = await supabaseClient
-                        .storage
-                        .from(BUCKET_ADI)
-                        .upload(benzersizIsim, resimDosyasi);
-
+                    const { error: uploadError } = await supabaseClient.storage.from(BUCKET_ADI).upload(benzersizIsim, resimDosyasi);
                     if (uploadError) throw uploadError;
-
-                    const { data: publicUrlData } = supabaseClient
-                        .storage
-                        .from(BUCKET_ADI)
-                        .getPublicUrl(benzersizIsim);
-
+                    const { data: publicUrlData } = supabaseClient.storage.from(BUCKET_ADI).getPublicUrl(benzersizIsim);
                     resimUrl = publicUrlData.publicUrl;
                 }
 
                 const { error: dbError } = await supabaseClient.from(TABLO_ADI).insert([{ 
-                    isim: isim, 
-                    harita: harita, 
-                    bitis_zamani: bitisZamani,
-                    resim_url: resimUrl 
+                    isim: isim, harita: harita, bitis_zamani: bitisZamani, resim_url: resimUrl 
                 }]);
-                
                 if (dbError) throw dbError;
 
                 document.getElementById('add-form').reset();
                 fetchTargets(); 
-
             } catch (error) {
-                console.error("İşlem Hatası:", error);
-                alert("Veri veya resim eklenirken bir hata oluştu / Error uploading data or image!");
+                alert("Hata oluştu / Error occurred");
             } finally {
-                btn.innerHTML = originalHtml;
+                btn.innerHTML = '<span class="leading-none">Sisteme İşle</span><span class="text-[10px] font-normal opacity-80 mt-1 leading-none">Submit</span>';
                 btn.disabled = false;
             }
         });
 
-        // Veri Silme İşlemi
+        // --------------------------------------------------------
+        // YENİ ÖZELLİK: SONRADAN GÖRSEL EKLEME/GÜNCELLEME MOTORU
+        // --------------------------------------------------------
+        
+        // 1. Dosya seçiciyi tetikle
+        function triggerImageUpdate(id) {
+            currentUpdateId = id; // Hangi ID'ye resim ekleyeceğimizi kaydet
+            document.getElementById('hidden-image-input').click(); // Gizli butona bas
+        }
+
+        // 2. Dosya seçilince arka planda yükle ve veritabanını güncelle
+        async function handleImageUpdate(event) {
+            const resimDosyasi = event.target.files[0];
+            if (!resimDosyasi || !currentUpdateId) return;
+
+            // Yükleniyor efekti verelim (Butonun adını geçici olarak değiştir)
+            const updateBtn = document.getElementById(`update-btn-${currentUpdateId}`);
+            if(updateBtn) updateBtn.innerHTML = '<span class="text-xs">Yükleniyor...</span>';
+
+            try {
+                const dosyaUzantisi = resimDosyasi.name.split('.').pop();
+                const benzersizIsim = `${Date.now()}-${Math.random().toString(36).substring(2)}.${dosyaUzantisi}`;
+                
+                // Resmi Storage'a yükle
+                const { error: uploadError } = await supabaseClient.storage.from(BUCKET_ADI).upload(benzersizIsim, resimDosyasi);
+                if (uploadError) throw uploadError;
+                
+                // Linki Al
+                const { data: publicUrlData } = supabaseClient.storage.from(BUCKET_ADI).getPublicUrl(benzersizIsim);
+                const yeniResimUrl = publicUrlData.publicUrl;
+
+                // Veritabanında (UPDATE) o satırın resim linkini değiştir
+                const { error: updateError } = await supabaseClient.from(TABLO_ADI).update({ resim_url: yeniResimUrl }).eq('id', currentUpdateId);
+                if (updateError) throw updateError;
+
+            } catch (error) {
+                console.error("Güncelleme Hatası:", error);
+                alert("Görsel güncellenirken hata oluştu / Error updating image!");
+            } finally {
+                // Seçilen dosyayı sıfırla ki aynı dosyayı bir daha seçebilsin
+                event.target.value = '';
+                currentUpdateId = null;
+                // Değişiklik WebSocket ile herkese gideceği için fetchTargets yazmaya gerek yok
+            }
+        }
+
+        // Silme İşlemi
         async function deleteTarget(id) {
             await supabaseClient.from(TABLO_ADI).delete().eq('id', id);
             fetchTargets();
         }
 
-        // Geri Sayım Hesaplayıcı
         function formatTimeLeft(endTimeStr) {
             const end = new Date(endTimeStr).getTime();
             const now = new Date().getTime();
@@ -224,15 +246,9 @@
             if(hours > 0) engResult += `${hours}h `;
             engResult += `${minutes}m ${seconds}s`;
 
-            return `
-                <div class="flex flex-col">
-                    <span class="text-amber-400 font-mono font-bold leading-none">${result}</span>
-                    <span class="text-[10px] text-amber-600/80 font-mono font-normal mt-1">${engResult}</span>
-                </div>
-            `;
+            return `<div class="flex flex-col"><span class="text-amber-400 font-mono font-bold leading-none">${result}</span><span class="text-[10px] text-amber-600/80 font-mono font-normal mt-1">${engResult}</span></div>`;
         }
 
-        // Ekrana Çizdirme Mantığı
         function renderTargets() {
             const tbody = document.getElementById('targets-body');
             tbody.innerHTML = '';
@@ -248,7 +264,7 @@
                 
                 const resimHtml = target.resim_url 
                     ? `<a href="${target.resim_url}" target="_blank" title="Büyütmek için tıkla / Click to enlarge"><img src="${target.resim_url}" class="w-12 h-12 object-cover rounded border border-slate-600 hover:border-amber-500 transition-colors"></a>`
-                    : `<div class="w-12 h-12 flex flex-col items-center justify-center bg-slate-800 rounded border border-slate-700 text-center leading-tight"><span class="text-[9px] text-slate-400">Görsel Yok</span><span class="text-[8px] text-slate-600 mt-0.5">No Image</span></div>`;
+                    : `<div class="w-12 h-12 flex flex-col items-center justify-center bg-slate-800 rounded border border-slate-700 text-center leading-tight"><span class="text-[9px] text-slate-400">Görsel Yok</span></div>`;
 
                 tr.innerHTML = `
                     <td class="p-3">${resimHtml}</td>
@@ -256,17 +272,23 @@
                     <td class="p-3 text-slate-300">${target.harita}</td>
                     <td class="p-3" id="timer-${target.id}">${formatTimeLeft(target.bitis_zamani)}</td>
                     <td class="p-3 text-right">
-                        <button onclick="deleteTarget(${target.id})" class="inline-flex flex-col items-center bg-red-900/50 text-red-400 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded transition-colors">
-                            <span class="text-xs font-medium leading-none">Temizle</span>
-                            <span class="text-[9px] font-normal opacity-80 mt-1 leading-none">Clear</span>
-                        </button>
+                        <div class="flex justify-end gap-2">
+                            <button id="update-btn-${target.id}" onclick="triggerImageUpdate(${target.id})" class="inline-flex flex-col items-center bg-blue-900/50 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded transition-colors w-16">
+                                <span class="text-xs font-medium leading-none">📷 Görsel</span>
+                                <span class="text-[9px] font-normal opacity-80 mt-1 leading-none">Image</span>
+                            </button>
+
+                            <button onclick="deleteTarget(${target.id})" class="inline-flex flex-col items-center bg-red-900/50 text-red-400 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded transition-colors w-16">
+                                <span class="text-xs font-medium leading-none">Temizle</span>
+                                <span class="text-[9px] font-normal opacity-80 mt-1 leading-none">Clear</span>
+                            </button>
+                        </div>
                     </td>
                 `;
                 tbody.appendChild(tr);
             });
         }
 
-        // Her saniye geri sayımları güncelle
         setInterval(() => {
             targets.forEach(target => {
                 const timerEl = document.getElementById(`timer-${target.id}`);
@@ -274,13 +296,11 @@
             });
         }, 1000);
 
-        // Canlı Güncelleme (Real-time WebSockets)
         supabaseClient.channel('custom-all-channel')
             .on('postgres_changes', { event: '*', schema: 'public', table: TABLO_ADI }, (payload) => {
                 fetchTargets(); 
             }).subscribe();
 
-        // Sistemi Başlat
         fetchTargets();
     </script>
 </body>
