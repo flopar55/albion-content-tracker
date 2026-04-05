@@ -67,16 +67,21 @@
     </div>
 
     <script>
-        // MİMARIN KODLADIĞI ÇEKİRDEK (Senin API Bilgilerinle)
+        // MİMARIN KODLADIĞI ÇEKİRDEK (Senin API Bilgilerinle ve Düzeltilmiş Bağlantıyla)
         const SUPABASE_URL = 'https://wbrpssjxzfxiyhwibked.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndicnBzc2p4emZ4aXlod2lia2VkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUzOTA1NTAsImV4cCI6MjA5MDk2NjU1MH0.-ZOimu7lyVwG5OLyJvooCiZqvuqz523QkWHZyGV8ztA';
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        
+        // Hatanın Çözümü: Değişken adını supabaseClient yaptık!
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // Tablo adını doğrudan senin verdiğin isimle sabitledik
+        const TABLO_ADI = 'albion_content_tracker';
 
         let targets = [];
 
         // Verileri Veritabanından Çek
         async function fetchTargets() {
-            const { data, error } = await supabase.from('albion_content_tracker').select('*').order('bitis_zamani', { ascending: true });
+            const { data, error } = await supabaseClient.from(TABLO_ADI).select('*').order('bitis_zamani', { ascending: true });
             if (error) { console.error('Hata:', error); return; }
             targets = data;
             renderTargets();
@@ -92,19 +97,20 @@
             // Bitiş zamanını hesapla (Şu anki UTC zamanı + girilen dakika)
             const bitisZamani = new Date(Date.now() + dakika * 60000).toISOString();
 
-            const { error } = await supabase.from('albion_content_tracker').insert([{ isim: isim, harita: harita, bitis_zamani: bitisZamani }]);
+            const { error } = await supabaseClient.from(TABLO_ADI).insert([{ isim: isim, harita: harita, bitis_zamani: bitisZamani }]);
             
             if (!error) {
                 document.getElementById('add-form').reset();
                 fetchTargets(); // Listeyi güncelle
             } else {
-                alert("Veri eklenirken hata oluştu! Tablo adını ('albion_content_tracker') ve kolonları doğru açtığından emin ol.");
+                console.error("Ekleme Hatası:", error);
+                alert("Veri eklenirken hata oluştu! Konsolu kontrol et.");
             }
         });
 
         // Veri Silme İşlemi
         async function deleteTarget(id) {
-            await supabase.from('albion_content_tracker').delete().eq('id', id);
+            await supabaseClient.from(TABLO_ADI).delete().eq('id', id);
             fetchTargets();
         }
 
@@ -121,8 +127,8 @@
             const seconds = Math.floor((distance % (1000 * 60)) / 1000);
 
             let result = "";
-            if(hours > 0) result += `${hours}s `;
-            result += `${minutes}d ${seconds}sn`;
+            if(hours > 0) result += `${hours}sa `;
+            result += `${minutes}dk ${seconds}sn`;
             return `<span class='text-amber-400 font-mono font-bold'>${result}</span>`;
         }
 
@@ -159,9 +165,9 @@
             });
         }, 1000);
 
-        // Canlı Güncelleme (Real-time WebSockets) - Biri eklerse herkes görsün!
-        supabase.channel('custom-all-channel')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'albion_content_tracker' }, (payload) => {
+        // Canlı Güncelleme (Real-time WebSockets)
+        supabaseClient.channel('custom-all-channel')
+            .on('postgres_changes', { event: '*', schema: 'public', table: TABLO_ADI }, (payload) => {
                 fetchTargets(); // Değişiklik olunca verileri yeniden çek
             }).subscribe();
 
